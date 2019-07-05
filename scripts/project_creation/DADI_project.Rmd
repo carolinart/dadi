@@ -12,18 +12,6 @@ output:
 ---
 
  
-```{r Inicio del proyecto, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-
-############################### INICIO DEL PROYECTO #########################################
-
-Ejecutar todos los chunks. Esto dirigiendo el cursor hacia la parte superior derecha donde dice Run y seleccionando Run All, o también usando la combinación de teclas Ctrl + Alt + R. De esta forma se genera todo el análisis para el mes solicitado por el usuario.
-
-NOTA: Este informe se debe guardar con un nombre especifico para que no se sobreescriba.
-
-```
-
-
-
 ```{r message=FALSE, warning=FALSE, include=FALSE}
 # Opciones previas
 knitr::opts_chunk$set(echo = FALSE)  ##Esto sirve para que no salga codigo en el html
