@@ -1,0 +1,2022 @@
+---
+title: "Descripción Analítica de Datos Inteligente (DADI)"
+output:
+  html_notebook:
+    toc: yes
+    toc_float: yes
+  html_document:
+    df_print: paged
+    toc: yes
+    code_folding: hide
+    
+---
+
+ 
+```{r Inicio del proyecto, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+
+############################### INICIO DEL PROYECTO #########################################
+
+Ejecutar todos los chunks. Esto dirigiendo el cursor hacia la parte superior derecha donde dice Run y seleccionando Run All, o también usando la combinación de teclas Ctrl + Alt + R. De esta forma se genera todo el análisis para el mes solicitado por el usuario.
+
+NOTA: Este informe se debe guardar con un nombre especifico para que no se sobreescriba.
+
+```
+
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Opciones previas
+knitr::opts_chunk$set(echo = FALSE)  ##Esto sirve para que no salga codigo en el html
+
+# Crear carpeta donde quedará guardado el reporte
+model_alias_modeling <- os.path.join(reports_path, model_alias)
+dir.create(model_alias_modeling)
+
+```
+
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+#Leer bases de datos crm
+data_path <- os.path.join(staging_path, "crm")
+files <- list.files(path= data_path, pattern = ".rds")
+
+position <-
+    paste0(sapply(str_extract_all(files, "[0-9]+"), "[[", 1)) %>% as.numeric
+
+df_position <-
+    data.frame(files = files, position = position)
+
+files <- df_position[df_position$position == yearmonth, ]
+files <- as.character(files[[1]])
+
+crm <-
+    readRDS(
+      paste0(data_path, "/", files)
+    )  
+
+```
+
+
+```{r include=FALSE}
+#Leer bases de datos de crm con tenencia 
+data_path <- os.path.join(staging_path, "crm-tenencia")
+files <- list.files(path= data_path, pattern = ".rds")
+
+position <-
+    paste0(sapply(str_extract_all(files, "[0-9]+"), "[[", 1)) %>% as.numeric
+
+df_position <-
+    data.frame(files = files, position = position)
+
+files <- df_position[df_position$position == yearmonth, ]
+files <- as.character(files[[1]])
+
+dt <-
+    readRDS(
+      paste0(data_path, "/", files)
+    )  
+
+```
+
+
+#Introducción y definiciones
+
+## Introducción
+
+Para este proyecto se utilizan las bases de datos de persona natural (tomada de CRM, que se encuentra bajo el codigo "N" en la base principal) y tenencia de productos para el mes correspondiente. 
+Con fecha de corte en `r dt$periodo[1]`.
+
+
+En la base de datos de persona natural se incluyen algunas variables creadas: 
+
+  * Edad: Generando la resta entre el periodo actual y la fecha de nacimiento de cada cliente.
+  * Antiguedad: Generando la resta entre el periodo actual y la fecha de vinculacion al banco.
+
+Las variables relevantes de persona natural para el estudio son: Edad, antiguedad, ingreso bruto mensual, activos totales, estrato, genero, numero de personas a cargo menores de 18 años, estado civil y municipio.
+
+En cuanto a la base de tenencia de productos se incluye una variable (creada) que tiene en cuenta si el cliente es monoproducto o multiproducto.
+
+Las variables relevantes de tenencia de productos son: Estrato y genero. 
+
+
+En la parte final del documento, se incluye un apendice que contiene un analisis detallado de: 
+
+  * Promedio de ingresos (en millones COP) por segmento comercial y táctico, incluyendo y excluyendo el maximo valor, que constituye un dato atipico.
+  
+  * Numero de clientes de Crediestudiantil* por segmento comercial y táctico.
+  
+  * Preferente plus:
+  
+     * Numero de clientes preferente plus por ocupacion incluyendo y excluyendo valores no reportados (NA).
+     * Numero de clientes preferente plus por segmento comercial y táctico (las marcaciones válidas para el caso de segmento comercial son las pertenecientes a Preferente únicamente)
+    
+
+**Importante:** 
+
+* Los valores observados en las gráficas de caja/boxplots (en la línea negra) corresponden a la **mediana** de los datos. Estas gráficas se hicieron para edad, antigüedad, ingresos y activos.
+
+* El análisis que se realiza en el documento únicamente es para clientes **activos**.
+
+***Crediestudiantil** se extrae de la base de datos de CREDITOS bajo los códigos de crédito (codigo_linea): 61, 152, 155 y 156. 
+
+##Definiciones
+
+Los tipos de segmentacion que se manejan en el proyecto son segmentos comerciales y segmentos tácticos. En la base de datos de CRM el nombre de la variable Segmento es crm_nombre_segmento y el nombre de la variable del código de Subsegmento es crm_codigo_subsegmento. Entre paréntesis se encuentra el código de cada segmento, a continuación:
+
+  * **Segmentos comerciales:** Se conforman por microfinanzas, masivo, preferente, preferente plus y premium.
+    
+     * Los clientes que pertenecen al Segmento Masivo son los que en CRM se encuentran como: Segmento Personas Bajo (1582), Segmento Personas Renta Baja I (1583), Segmento Personas Renta Baja II (1584), Segmento Personas Medio (1581), Prospecto Personas Alto (1545), Personas Alto (1544), Otras Personas Naturales (620), Segmento Personas Ni?os (1585), Segmento Personas Infantil (1586), Segmento Personas Adolescente (1587) y Segmento Personas Joven (1588).
+     * Los clientes que pertenecen al Segmento Preferente son los que en CRM se encuentran como Prospecto Preferente (153) y Preferente Medio (1579). 
+     * Los clientes que pertenecen al Segmento Preferente Plus son los que se encuentran en el segmento Preferente y ademas estan marcados con el codigo 35 de subsegmento de CRM.
+     * Los clientes que pertenecen al Segmento Premium son los que en CRM se encuentran como Preferente Premium (1578).
+  
+  
+  * **Segmentos tacticos** se basan en los cortes de edad de la siguiente manera:
+    
+    * Infantil: de 0 a 13 años
+    * Adolescente: de 14 a 17 años
+    * Joven: de 18 a 25 años
+    * Adulto: de 26 a 59 años
+    * Experiencia: Mayor a 60 años  
+
+
+
+###Gráfica valores no reportados
+```{r echo=FALSE}
+gg_miss_fct(x = crm, fct = segmento_tactico)
+```
+
+```{r include=FALSE}
+#Condiciones que se van a usar en las graficas
+
+positions <- c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium")    ##Especificar el orden de los segmentos comerciales
+
+positions_tac <- c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia")   ##Especificar orden de los segmentos tacticos
+
+```
+
+
+#Número de clientes
+
+##Segmento comercial
+```{r echo=FALSE, fig.width=8, fig.height=5}
+#Numero de clientes por segmento comercial
+
+base <- crm[, .N, by = segmento_comercial][order(segmento_comercial)] 
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes(x = segmento_comercial, y = N, fill = seg_order)) +
+  geom_col() +
+  labs(title = "Número de clientes por segmento comercial",
+  x = "Segmento", y = "Número de clientes") +
+  theme_minimal()+
+  scale_x_discrete(limits= positions)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8)) +
+  theme(axis.text.y = element_text(size = 6.5)) +
+  geom_text(aes(x = segmento_comercial, y = N , label = comma(N) ), size = 3, vjust = -0.3) +
+   scale_fill_discrete(guide = guide_legend(title = "Segmento comercial"))+
+   scale_y_continuous(labels = comma) 
+
+```
+
+
+##Segmento táctico
+```{r echo=FALSE, fig.width=8, fig.height=5}
+#Numero de clientes por segmento tactico
+base <- crm[, .N, by = segmento_tactico][order(segmento_tactico)] 
+
+tac_order <- factor(base$segmento_tactico, level = c('Infantil', 'Adolescente', 'Joven', 'Adulto','Experiencia'), ordered = T)
+
+base %>% ggplot(aes(x = segmento_tactico, y = N)) +
+  geom_col(aes(fill = forcats::fct_rev(tac_order))) +
+  labs(title = "Número de clientes por segmento táctico",
+  x = "Segmento", y = "Número de clientes") +
+  theme_minimal()+
+  scale_x_discrete(limits= positions_tac)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8)) +
+  theme(axis.text.y = element_text(size = 6.5)) +
+  geom_text(aes(x = segmento_tactico, y = N , label = comma(N) ), size = 3, vjust = -0.3) +
+   scale_fill_discrete(guide = guide_legend(title = "Segmento táctico"))+
+   scale_y_continuous(labels = comma) 
+```
+
+#Proporción de clientes segmento comercial vs táctico
+```{r echo=FALSE, fig.width=8, fig.height=5}
+base <- crm[, .(count = .N), by = .(segmento_comercial, segmento_tactico)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+
+tac_order <- factor(base$segmento_tactico, level = c('Infantil', 'Adolescente', 'Joven', 'Adulto','Experiencia'), ordered = T)
+
+base %>% ggplot(aes( x = segmento_comercial, y = weight)) +
+  geom_bar(aes(fill= forcats::fct_rev(tac_order)),stat = "identity")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Segmentos tácticos por segmento comercial",
+  x = "Segmento", y = "Proporción") +
+   theme_minimal() +
+    scale_x_discrete(limits= positions)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmento táctico"))+
+  theme(axis.text.y = element_text(size = 6.5)) 
+
+```
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt <- crm
+
+dt_sa <- dt[segmento_tactico != "Adulto"]  ##Ver misma gráfica sin adulto
+
+base <- dt_sa[, .(count = .N), by = .(segmento_comercial, segmento_tactico)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+
+tac_order <- factor(base$segmento_tactico, level = c('Infantil', 'Adolescente', 'Joven', 'Adulto','Experiencia'), ordered = T)
+
+base %>% ggplot(aes( x = segmento_comercial, y = weight)) +
+  geom_bar(aes(fill= forcats::fct_rev(tac_order)),stat = "identity")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Segmentos tácticos por segmento comercial", subtitle = "Sin incluir adulto",
+  x = "Segmento", y = "Proporción") +
+   theme_minimal() +
+    scale_x_discrete(limits= positions)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmento táctico"))+
+  theme(axis.text.y = element_text(size = 6.5)) 
+
+rm(dt_sa)
+# gc()
+```
+
+
+#Edad
+
+**Importante**: Los valores observados en las gráficas de caja/boxplots (en la línea negra) corresponden a la **mediana** de los datos. 
+
+##Segmento comercial
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=5}
+#Edad por segmento sin límites
+
+dt[, edad := as.numeric(edad)]
+medianas <- dt[, .(edad = round(median(edad), digits = 0)), by = segmento_comercial]
+
+ggplot(data = dt, aes(x = segmento_comercial, y = edad)) +
+  geom_boxplot(aes(fill = factor(segmento_comercial))) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos")) +
+  ylim(0, 100) +
+  scale_x_discrete(limits= positions)+
+  labs(caption = "Nota: Con límites de edad de 0 a 100",
+  title = "Edad (años) por segmento comercial", 
+  x = "Segmentos", y = "Edad") +
+   theme_minimal()+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+  legend.position = "none") +
+  geom_text(data = medianas, 
+            aes(label = edad),
+            position = position_dodge(width = 1), vjust = -0.1) 
+
+```
+   
+
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+#Distribución
+ggplot(dt, aes(x= edad, y= segmento_comercial))+
+  ggridges::geom_density_ridges(aes(fill=I("royalblue"), col= I("darkblue")))+
+  scale_y_discrete(limits= positions)+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.position = "none")+
+  xlab("Edad")+
+  ylab("Segmento")+
+  xlim(0,100)+
+  labs(title= "Distribución de edad por segmento comercial")
+
+```
+
+
+##Segmento táctico
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=5}
+#Edad por segmento 
+
+medianas <- dt[, .(edad = round(median(edad), digits = 0)), by = segmento_tactico]
+
+ggplot(data = dt, aes(x = segmento_tactico, y = edad)) +
+  geom_boxplot(aes(fill = factor(segmento_tactico))) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos")) +
+  ylim(0, 100) +
+  scale_x_discrete(limits= positions_tac)+
+  labs(caption = "Nota: Con límites de edad de 0 a 100",
+  title = "Edad (años) por segmento táctico", 
+  x = "Segmentos", y = "Edad") +
+   theme_minimal()+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+  legend.position = "none") +
+  geom_text(data = medianas, 
+            aes(label = edad),
+            position = position_dodge(width = 1), vjust = -0.1) 
+
+```
+
+
+
+#Antiguedad
+
+##Segmento comercial
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=8, fig.height=5}
+dt[, antiguedad := as.numeric(antiguedad)]
+dt[, antiguedad_anos := antiguedad/12]
+
+medianas <- dt[, .(antiguedad_anos = round(median(antiguedad_anos), 0)), by = segmento_comercial]
+
+ggplot(data = dt, aes(x = segmento_comercial, y = antiguedad_anos)) +
+  geom_boxplot(aes(fill = segmento_comercial)) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos")) +
+  scale_x_discrete(limits = positions)+
+  labs(caption = "Nota: Con límites de antiguedad de 0 a 100",
+  title = "Antigüedad (años) por segmento comercial", 
+  x = "Segmentos", y = "Antigüedad") +
+   theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+  legend.position = "none") +
+  geom_text(data = medianas, 
+            aes(label = antiguedad_anos),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+```
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+#Distribución
+ggplot(dt, aes(x= antiguedad_anos, y= segmento_comercial))+
+  ggridges::geom_density_ridges(aes(fill=I("royalblue"), col= I("darkblue")))+
+  scale_y_discrete(limits= positions)+
+  xlab("Antigüedad")+
+  ylab("Segmento")+
+  xlim(0,50)+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))+
+  labs(title= "Distribución de antigüedad (años) por segmento comercial", caption = "Nota: Con límite de 0 a 50")
+
+```
+
+##Segmento táctico
+```{r echo=FALSE, fig.width=8, fig.height=5}
+medianas <- dt[, .(antiguedad_anos = round(median(antiguedad_anos), 0)), by = segmento_tactico]
+
+ggplot(data = dt, aes(x = segmento_tactico, y = antiguedad_anos)) +
+  geom_boxplot(aes(fill = segmento_tactico)) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos")) +
+  scale_x_discrete(limits = positions_tac)+
+  labs(caption = "Nota: Con límites de antiguedad de 0 a 100",
+  title = "Antigüedad (años) por segmento táctico", 
+  x = "Segmentos", y = "Antigüedad") +
+   theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+  legend.position = "none") +
+  geom_text(data = medianas, 
+            aes(label = antiguedad_anos),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+```
+
+
+```{r echo=FALSE, fig.height=5, fig.width=8}
+ggplot(dt, aes(x= antiguedad_anos, y= segmento_tactico))+
+  ggridges::geom_density_ridges(aes(fill=I("royalblue"), col= I("darkblue")))+
+  scale_y_discrete(limits= positions_tac)+
+  xlab("Antigüedad")+
+  ylab("Segmento")+
+  xlim(0,25)+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))+
+  labs(title= "Distribución de antigüedad (años) por segmento táctico", caption = "Nota: Con límite de 0 a 25")
+
+```
+
+
+#Ingresos 
+
+##Segmento comercial
+
+**Importante:** Se imponen límites en las gráficas para visualizar mejor los datos. En cada gráfica se especifica el límite. La primera gráfica incluye todos los segmentos, pero debido a la distorsión que causa la imposición de límites en los valores se hacen otras dos gráficas donde se observa la mediana de forma clara.
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt[, crm_valor_ing_bru_mes:= as.numeric(crm_valor_ing_bru_mes)]
+dt[, ingresos_millones := crm_valor_ing_bru_mes/1000000]
+
+medianas <- dt[, .(ingresos_millones = round(median(ingresos_millones, na.rm = T), 0)), by = segmento_comercial]
+
+ggplot(dt, aes(x = segmento_comercial, y = ingresos_millones)) + geom_boxplot(aes(fill = segmento_comercial)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,50)) + 
+  scale_x_discrete(limits = positions) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Ingresos por segmento comercial",subtitle = "Todos los segmentos",caption= "Nota: Con límite hasta 50 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5))
+  # geom_text(data = medianas, 
+            # aes(label = ingresos_millones),
+            # position = position_dodge(width = 1), vjust = -0.1)
+```
+
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+#Ingresos por segmento con límites
+dt_sp <- dt[segmento_comercial != "Premium"]
+dt_sp[, ingresos_millones := crm_valor_ing_bru_mes/1000000]
+dt_sp[, crm_valor_ing_bru_mes:= as.numeric(crm_valor_ing_bru_mes)]
+
+positions_sp <- c("Micro", "Masivo", "Preferente", "Preferente Plus")    ##Especificar el orden de los segmentos comerciales
+
+medianas <- dt_sp[, .(ingresos_millones = round(median(ingresos_millones, na.rm = T), 2)), by = segmento_comercial]
+
+ggplot(dt_sp, aes(x = segmento_comercial, y = ingresos_millones)) + geom_boxplot(aes(fill = segmento_comercial)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,30)) +
+    scale_x_discrete(limits = positions_sp) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Ingresos por segmento comercial", subtitle = "Sin incluir segmento Premium",caption= "Nota: Con límite hasta 30 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5))+ 
+  geom_text(data = medianas, 
+            aes(label = ingresos_millones),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+
+```
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt_premium <- dt[segmento_comercial == "Premium"]
+dt_premium[, crm_valor_ing_bru_mes:= as.numeric(crm_valor_ing_bru_mes)]
+dt_premium[, ingresos_millones := crm_valor_ing_bru_mes/1000000]
+
+positions_prem <- "Premium"
+
+medianas <- dt_premium[, .(ingresos_millones = round(median(ingresos_millones, na.rm = T), 2)), by = segmento_comercial]
+
+ggplot(dt_premium, aes(x = segmento_comercial, y = ingresos_millones)) + geom_boxplot(aes(fill = segmento_comercial)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,90)) +
+      scale_x_discrete(limits = positions_prem) +
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Ingresos por segmento Premium", caption= "Nota: Con límite hasta 90 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal()+
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5))+ 
+  geom_text(data = medianas, 
+            aes(label = ingresos_millones),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+
+
+```
+**Importante:** Se decide separar del análisis el segmento Premium de los segmentos comerciales para una mejor visualización de los datos.
+
+
+##Segmento táctico
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+medianas <- dt[, .(ingresos_millones = round(median(ingresos_millones, na.rm = T), 2)), by = segmento_tactico]
+
+ggplot(dt, aes(x = segmento_tactico, y = ingresos_millones)) + geom_boxplot(aes(fill = segmento_tactico)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_x_discrete(limits= positions_tac)+
+   scale_y_continuous(labels = comma, limits = c(0,10)) + 
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Ingresos por segmento táctico", caption= "Nota: Con límite hasta 10 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5))+ 
+  geom_text(data = medianas, 
+            aes(label = ingresos_millones),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+```
+
+
+
+#Activos
+
+##Segmento comercial
+
+**Importante:** Se imponen límites en las gráficas para visualizar mejor los datos. En cada gráfica se especifica el límite. La primera gráfica incluye todos los segmentos, pero debido a la distorsión que causa la imposición de límites en los valores, se hacen otras dos gráficas donde se observa la mediana de forma clara.
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt[, crm_valor_activos:= as.numeric(crm_valor_activos)]
+dt[, activos_millones := crm_valor_activos/1000000]
+
+medianas <- dt[, .(activos_millones = round(median(activos_millones, na.rm = T), 0)), by = segmento_comercial]
+
+ggplot(dt, aes(x = segmento_comercial, y = activos_millones)) + geom_boxplot(aes(fill = segmento_comercial)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,600)) + 
+  scale_x_discrete(limits = positions)+
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Activos por segmento comercial", caption= "Nota: Con límite hasta 600 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5)) 
+ 
+ 
+```
+
+
+```{r echo= FALSE, fig.width=8, fig.height=5}
+dt_sp[, crm_valor_activos := as.numeric(crm_valor_activos)]
+dt_sp[, activos_millones := crm_valor_activos/1000000]
+
+medianas <- dt_sp[, .(activos_millones = round(median(activos_millones, na.rm = T), 2)), by = segmento_comercial]
+
+ggplot(dt_sp, aes(x = segmento_comercial, y = activos_millones)) + geom_boxplot(aes(fill = segmento_comercial)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,600)) + 
+  scale_x_discrete(limits = positions_sp)+
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Activos por segmento comercial",subtitle = "Sin incluir segmento Premium",caption= "Nota: Con límite hasta 600 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5)) +
+  geom_text(data = medianas, 
+            aes(label = activos_millones),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+rm(dt_sp)
+# gc()
+
+```
+
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt_premium[, crm_valor_activos := as.numeric(crm_valor_activos)]
+dt_premium[, activos_millones := crm_valor_activos/1000000]
+
+medianas <- dt_premium[, .(activos_millones = round(median(activos_millones, na.rm = T), 2)), by = segmento_comercial]
+
+ggplot(dt_premium, aes(x = segmento_comercial, y = activos_millones)) + geom_boxplot(aes(fill = segmento_comercial)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,5000)) + 
+  scale_x_discrete(limits = positions_prem)+
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Activos por segmento Premium",caption= "Nota: Con límite hasta 5000 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5))+
+  geom_text(data = medianas, 
+            aes(label = activos_millones),
+            position = position_dodge(width = 1), vjust = -0.1)
+rm(dt_premium)
+# gc()
+
+```
+
+**Importante:** Se decide separar del análisis el segmento Premium de los segmentos comerciales para una mejor visualización de los datos.
+
+
+##Segmento táctico
+
+**Importante:** Se imponen límites en las gráficas para visualizar mejor los datos. En cada gráfica se especifica el límite. La primera gráfica incluye todos los segmentos, pero debido a la distorsión que causa la imposición de límites en los valores, se hacen otras dos gráficas donde se observa la mediana de forma clara.
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt[, activos_millones := crm_valor_activos/1000000]
+
+ggplot(dt, aes(x = segmento_tactico, y = activos_millones)) + geom_boxplot(aes(fill = segmento_tactico)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,20)) + 
+  scale_x_discrete(limits = positions_tac)+
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Activos por segmento táctico",caption= "Nota: Con límite hasta 20 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5)) 
+ 
+```
+
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt_sin_ae <- dt[segmento_tactico != "Adulto" & segmento_tactico != "Experiencia"]
+
+medianas <- dt_sin_ae[, .(activos_millones = round(median(activos_millones, na.rm = T), 2)), by = segmento_tactico]
+
+positions_sin_ae <- c("Infantil", "Adolescente", "Joven")
+
+dt_sin_ae[, crm_valor_activos:= as.numeric(crm_valor_activos) ]
+dt_sin_ae[, activos_millones := crm_valor_activos/1000000]
+
+ggplot(dt_sin_ae, aes(x = segmento_tactico, y = activos_millones)) + geom_boxplot(aes(fill = segmento_tactico)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,11)) + 
+  scale_x_discrete(limits = positions_sin_ae)+
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Activos por segmento táctico",subtitle = "Sin incluir adulto y experiencia",caption= "Nota: Con límite hasta 11 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5)) +
+  geom_text(data = medianas, 
+            aes(label = activos_millones),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+rm(dt_sin_ae)
+# gc()
+```
+
+```{r echo=FALSE, fig.width=8, fig.height=5}
+dt_sin_iaj <- dt[segmento_tactico != "Infantil" & segmento_tactico != "Adolescente" & segmento_tactico != "Joven"]
+
+medianas <- dt_sin_iaj[, .(activos_millones = round(median(activos_millones, na.rm = T), 2)), by = segmento_tactico]
+
+positions_sin_iaj <-c("Adulto", "Experiencia")
+
+dt_sin_iaj[, crm_valor_activos:= as.numeric(crm_valor_activos)]
+dt_sin_iaj[, activos_millones := crm_valor_activos/1000000]
+
+ggplot(dt_sin_iaj, aes(x = segmento_tactico, y = activos_millones)) + geom_boxplot(aes(fill = segmento_tactico)) +
+  theme(axis.text.y=element_text(size = 8))+
+   scale_y_continuous(labels = comma, limits = c(0,130)) + 
+  scale_x_discrete(limits = positions_sin_iaj)+
+  scale_fill_discrete(guide = guide_legend(title = "Segmentos"))+
+  labs(title= "Activos por segmento táctico",subtitle = "Sin incluir infantil, adolescente y joven",caption= "Nota: Con límite hasta 130 millones de pesos", x = "Segmentos", y = "Ingreso (en  millones COP)")+
+  theme_minimal() +
+  theme(legend.position = "none", plot.title = element_text(face = "bold", hjust = 0.5)) +
+  geom_text(data = medianas, 
+            aes(label = activos_millones),
+            position = position_dodge(width = 1), vjust = -0.1)
+
+rm(dt_sin_iaj)
+# gc()
+
+```
+
+
+
+#Estrato
+```{r include=FALSE}
+rm(positions_prem,positions_sin_ae, positions_sin_iaj, positions_sp)
+dt[, crm_estrato := factor(crm_estrato)]
+position_estrato <- c("6", "5", "4", "3", "2", "1")
+```
+
+
+##Segmento comercial
+```{r echo=FALSE, fig.width=8, fig.height=5}
+#Estrato por segmento vs. Segmento por estrato
+base <- dt[, .(count = .N), by = .(segmento_comercial, crm_estrato)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+base <-base[!is.na(crm_estrato)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = seg_order, y = weight, fill = factor(crm_estrato, levels = c("6", "5", "4", "3", "2", "1")))) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  # scale_x_discrete(positions)+
+  labs(title = "Estrato por segmento comercial",
+  x = "Segmento", y = "Proporción") +
+   theme_minimal() + 
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+    scale_fill_discrete(guide = guide_legend(title = "Estrato"))+
+      theme(axis.text.y = element_text(size = 6.5))
+```
+
+##Segmento comercial por estrato
+```{r echo=FALSE, fig.width=8, fig.height=5}
+
+base <- dt[, .(count = .N), by = .(segmento_comercial, crm_estrato)]
+
+base[, total := sum(count), by = crm_estrato]
+base[, weight := count/total]
+base <- base[!is.na(crm_estrato)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = crm_estrato, y = weight, fill = forcats::fct_rev(seg_order))) +
+  geom_bar(stat = "identity")  +
+    geom_text(  aes(x = crm_estrato , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  scale_x_discrete(position_estrato)+
+  labs(title = "Segmento comercial por estrato",
+  x = "Estrato", y = "Proporción", fill = "Segmento") +
+    theme_minimal() + 
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+    scale_fill_discrete(guide = guide_legend(title = "Segmento"))+
+    theme(axis.text.y = element_text(size = 6.5))
+```
+
+##Segmento táctico
+```{r echo=FALSE, fig.width=8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_tactico, crm_estrato)]
+
+base[, total := sum(count), by = segmento_tactico]
+base[, weight := count/total]
+base <-base[!is.na(crm_estrato)]
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = weight, fill = factor(crm_estrato, levels = c("6", "5", "4", "3", "2", "1")))) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  # scale_x_discrete(positions)+
+  labs(title = "Estrato por segmento táctico",
+  x = "Segmento", y = "Proporción") +
+    theme_minimal() + 
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+    scale_fill_discrete(guide = guide_legend(title = "Estrato"))+
+  theme(axis.text.y = element_text(size = 6.5))
+
+```
+
+##Segmento táctico por estrato
+```{r echo=FALSE, fig.width=8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_tactico, crm_estrato)]
+
+base[, total := sum(count), by = crm_estrato]
+base[, weight := count/total]
+base <- base[!is.na(crm_estrato)]
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = crm_estrato, y = weight, fill = forcats::fct_rev(tac_order))) +
+  geom_bar(stat = "identity")  +
+    geom_text(  aes(x = crm_estrato , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  scale_x_discrete(position_estrato)+
+  labs(title = "Segmento táctico por estrato",
+  x = "Estrato", y = "Proporción", fill = "Segmento") +
+    theme_minimal() + 
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+    scale_fill_discrete(guide = guide_legend(title = "Segmento"))+
+  theme(axis.text.y = element_text(size = 6.5))
+```
+
+
+#Género 
+
+##Segmento comercial
+```{r echo=FALSE, fig.width=8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_comercial, crm_genero)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+base <- base[!is.na(crm_genero)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = seg_order, y = weight, fill = factor(crm_genero))) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Género por segmento comercial",
+  x = "Segmento", y = "Proporción") +
+  theme_minimal() + 
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+      scale_fill_discrete(guide = guide_legend(title = "Género"))+
+     theme(axis.text.y = element_text(size = 6.5))
+```
+
+##Segmento táctico
+```{r echo=FALSE, fig.width=8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_tactico, crm_genero)]
+
+base[, total := sum(count), by = segmento_tactico]
+base[, weight := count/total]
+base <- base[!is.na(crm_genero)]
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = weight, fill = crm_genero)) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Género por segmento táctico",
+  x = "Segmento", y = "Proporción") +
+  theme_minimal() + 
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+  scale_fill_discrete(guide = guide_legend(title = "Género"))+
+  theme(axis.text.y = element_text(size = 6.5))
+
+```
+
+
+#Número personas a cargo menores de 18 años
+
+##Segmento comercial
+
+```{r include=FALSE}
+dt[, crm_num_personas_cargo_men18 := as.numeric(crm_num_personas_cargo_men18)]
+dt[, crm_num_personas_cargo_may18 := as.numeric(crm_num_personas_cargo_may18)]
+```
+
+```{r include=FALSE}
+dt[, num_menores := crm_num_personas_cargo_men18]
+dt[num_menores > 2, num_menores := 99]
+dt[, num_menores := factor(num_menores,
+                                   levels = c(0, 1, 2, 99),
+                                   labels = c("0", "1", "2", "2+"))]
+```
+
+
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_comercial, num_menores)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+base <- base[!is.na(num_menores)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = seg_order, y = weight, fill = forcats::fct_rev(num_menores))) +
+  geom_bar(stat = "identity")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Número personas a cargo menores de 18 años",
+  x = "Segmento", y = "Proporción") +
+  theme_minimal() + 
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Personas a cargo \n menores de 18 años"))+
+  theme(axis.text.y = element_text(size = 6.5))
+ 
+```
+
+##Segmento táctico
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_tactico, num_menores)]
+
+base[, total := sum(count), by = segmento_tactico]
+base[, weight := count/total]
+base <- base[!is.na(num_menores)]
+
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = weight, fill = forcats::fct_rev(num_menores))) +
+  geom_bar(stat = "identity")  +
+    geom_text(  aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Número personas a cargo menores de 18 años",
+  x = "Segmento", y = "Proporción") +
+     theme_minimal() +
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Personas a cargo \n menores de 18 años"))+
+  theme(axis.text.y = element_text(size = 6.5))
+```
+
+
+#Estado civil
+
+##Segmento comercial
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_comercial, crm_nombre_estado_civil)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+base <- base[!is.na(crm_nombre_estado_civil)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = seg_order, y = weight, fill = crm_nombre_estado_civil)) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Estado civil por segmento comercial",
+  x = "Segmento", y = "Proporción") +
+     theme_minimal() +
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Estado civil"))+
+  theme(axis.text.y = element_text(size = 6.5))
+```
+
+
+
+##Segmento táctico
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_tactico, crm_nombre_estado_civil)]
+
+base[, total := sum(count), by = segmento_tactico]
+base[, weight := count/total]
+base <- base[!is.na(crm_nombre_estado_civil)]
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = weight, fill = crm_nombre_estado_civil)) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Estado civil por segmento táctico",
+  x = "Segmento", y = "Proporción") +
+     theme_minimal() +
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Estado civil"))+
+  theme(axis.text.y = element_text(size = 6.5))
+```
+
+
+#Departamento
+
+##Segmento comercial
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_comercial, departamento)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+base <- base[!is.na(departamento)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = seg_order, y = weight, fill = departamento)) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Departamento por segmento comercial",
+  x = "Segmento", y = "Proporción") +
+     theme_minimal() +
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Departamento"))+
+  theme(axis.text.y = element_text(size = 6.5))
+```
+
+
+##Segmento táctico
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+base <- dt[, .(count = .N), by = .(segmento_tactico, departamento)]
+
+base[, total := sum(count), by = segmento_tactico]
+base[, weight := count/total]
+base <- base[!is.na(departamento)]
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = weight, fill = departamento)) +
+  geom_bar(stat = "identity", position = "fill")  +
+    geom_text(  aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Departamento por segmento táctico",
+  x = "Segmento", y = "Proporción") +
+  theme_minimal() +
+    theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Departamento"))+
+    theme(axis.text.y = element_text(size = 6.5))
+
+```
+
+
+#Proporción de clientes monoproducto y multiproducto 
+
+##Segmento comercial
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+#Conteo monoproducto y multiproducto por segmento
+base <- dt[, .(count = .N), by = .(segmento_comercial, monmulti)]
+
+base[, total := sum(count), by = segmento_comercial]
+base[, weight := count/total]
+base <- base[!is.na(monmulti)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = seg_order, y = weight, fill = monmulti)) +
+  geom_bar(stat = "identity")  +
+    geom_text(  aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Proporción de clientes monoproducto y multiproducto \n por segmento comercial",
+  x = "Segmento", y = "Proporción") +
+   theme_minimal() +
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Categoría"))+
+   theme(axis.text.y = element_text(size = 6.5))
+
+```
+
+##Segmento táctico
+```{r echo=FALSE, fig.width= 8, fig.height=5}
+#Conteo monoproducto y multiproducto por segmento
+base <- dt[, .(count = .N), by = .(segmento_tactico, monmulti)]
+
+base[, total := sum(count), by = segmento_tactico]
+base[, weight := count/total]
+base <- base[!is.na(monmulti)]
+
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = weight, fill = monmulti)) +
+  geom_bar(stat = "identity")  +
+    geom_text(  aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Proporción de clientes monoproducto y multiproducto \n por segmento táctico",
+  x = "Segmento", y = "Proporción") +
+  theme_minimal() +
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+   scale_fill_discrete(guide = guide_legend(title = "Categoría"))+
+    theme(axis.text.y = element_text(size = 6.5))
+
+
+```
+
+
+#Número de productos por segmento
+
+##Segmento comercial
+```{r echo=FALSE, fig.width= 18, fig.height= 20}
+#Producto por segmento
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+melt_by_segmento <- melt_by_segmento[variable != "Constructor"]
+
+segmento_ordenado <- factor(melt_by_segmento$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'))
+
+ggplot(melt_by_segmento, aes( x = variable, y = value/1000) ) + 
+  geom_col(aes(fill = factor(variable))) + 
+  facet_wrap(~factor(segmento_ordenado), scales = "free") + theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+  labs(title = "Número de productos por segmento comercial", x= "Productos", y= "Cantidad de productos (en miles)", fill= "Producto")+
+  scale_y_continuous(labels = scales::comma)+
+  theme_minimal()+
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))+
+  scale_fill_discrete(labels = c('Cuenta Ahorro', 'Tarjeta Credito', 'Cuenta Nomina', 'Crediservice', 'CDT', 'Ordinario', 'Otros', 'Libranza', 'Libredestino',  'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda', 'Microcredito', 'Fomento', 'Activo Pyme'))+
+   geom_text(aes(label = round(melt_by_segmento$value/1000, digits = 1), hjust =0, vjust = -0.3, angle = 90))
+  #coord_flip()+
+
+```
+
+```{r echo=FALSE, fig.width=15, , fig.height=15}
+#Productos por segmento
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+setnames(dt_tenencia, old = c("cant_tarj_credito", "cant_ctas_nomina", "cant_ctas_ahorro", "cant_crediservice", "cant_cdt", "cant_ordinario", "cant_libranza", "cant_libre_destino", "cant_otros", "cant_vehiculo", "cant_ctas_corriente", "cant_leasing", "cant_vivienda",  "cant_fomento", "cant_microcredito", "cant_activo_pyme") , new = c('Tarjeta Credito', 'Cuenta Nomina', 'Cuenta Ahorro', 'Crediservice', 'CDT', 'Ordinario', 'Libranza', 'Libredestino', 'Otros', 'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda','Fomento', 'Microcredito', 'Activo Pyme'))
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+melt_by_segmento <- melt_by_segmento[variable != "Constructor"]
+
+
+segmento_ordenado <- factor(melt_by_segmento$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'))
+
+
+ggplot(melt_by_segmento, aes( x = segmento_ordenado, y = value) ) + geom_col(aes(fill = forcats::fct_rev(segmento_ordenado))) + 
+  facet_wrap(~factor(variable), scales = "free") + 
+  geom_text(aes(label = comma(melt_by_segmento$value/1), vjust = -0.2))+
+  theme_minimal()+
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank(), plot.title = element_text(face = "bold", hjust = 0.5))+
+  labs(title = "Número de productos por segmento comercial", x= "Segmentos", y= "Cantidad de producto", fill= "Segmento")+
+  scale_y_continuous(labels = scales::comma)
+
+
+```
+
+
+##Segmento táctico
+```{r echo=FALSE, fig.width= 17, fig.height= 20}
+#Producto por segmento
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_tactico")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_tactico]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_tactico")
+melt_by_segmento <- melt_by_segmento[variable != "Constructor"]
+
+segmento_ordenado <- factor(melt_by_segmento$segmento_tactico, levels=c('Infantil', 'Adolescente', 'Joven', 'Adulto', 'Experiencia'))
+
+ggplot(melt_by_segmento, aes( x = variable, y = value/1000) ) + 
+  geom_col(aes(fill = factor(variable))) + 
+  facet_wrap(~factor(segmento_ordenado), scales = "free") +
+  theme_minimal()+
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+  labs(title = "Número de productos por segmento táctico", x= "Productos", y= "Cantidad de productos (en miles)", fill= "Producto")+
+  scale_y_continuous(labels = scales::comma)+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))+
+  scale_fill_discrete(labels = c('Cuenta Ahorro', 'Tarjeta Credito', 'Cuenta Nomina', 'Crediservice', 'CDT', 'Ordinario', 'Otros', 'Libranza', 'Libredestino',  'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda', 'Microcredito', 'Fomento', 'Activo Pyme'))+
+   geom_text(aes(label = round(melt_by_segmento$value/1000, digits = 1), hjust =0, vjust = -0.3, angle = 90))
+  #coord_flip()+
+```
+
+
+```{r echo=FALSE, fig.width=15, , fig.height=15}
+#Productos por segmento 
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_tactico")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+setnames(dt_tenencia, old = c("cant_tarj_credito", "cant_ctas_nomina", "cant_ctas_ahorro", "cant_crediservice", "cant_cdt", "cant_ordinario", "cant_libranza", "cant_libre_destino", "cant_otros", "cant_vehiculo", "cant_ctas_corriente", "cant_leasing", "cant_vivienda",  "cant_fomento", "cant_microcredito", "cant_activo_pyme") , new = c('Tarjeta Credito', 'Cuenta Nomina', 'Cuenta Ahorro', 'Crediservice', 'CDT', 'Ordinario', 'Libranza', 'Libredestino', 'Otros', 'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda','Fomento', 'Microcredito', 'Activo Pyme'))
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_tactico]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_tactico")
+melt_by_segmento <- melt_by_segmento[variable != "Constructor"]
+
+segmento_ordenado <- factor(melt_by_segmento$segmento_tactico, levels=c('Infantil', 'Adolescente', 'Joven', 'Adulto', 'Experiencia'))
+
+ggplot(melt_by_segmento, aes( x = segmento_ordenado, y = value) ) + geom_col(aes(fill = forcats::fct_rev(segmento_ordenado))) + 
+  facet_wrap(~factor(variable), scales = "free") + theme(axis.text.x = element_blank(), axis.ticks = element_blank())+
+  labs(title = "Número de productos por segmento táctico", x= "Segmentos", y= "Cantidad de producto", fill= "Segmento")+
+  theme_minimal()+
+    theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+    geom_text(aes(label = comma(melt_by_segmento$value), vjust = -0.2))+
+  scale_y_sqrt(labels = scales::comma)+
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+```
+
+
+#Número de productos por estrato
+```{r echo=FALSE, fig.height=25, fig.width=18}
+#Producto por estrato
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "crm_estrato")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+sum_by_estrato <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = crm_estrato]
+melt_by_estrato <- melt(sum_by_estrato, id = "crm_estrato")
+
+ggplot(melt_by_estrato, aes( x = variable , y = value/1000) ) + 
+  geom_col(aes(fill = factor(variable))) + 
+  facet_wrap(~factor(crm_estrato), scales = "free") + theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+  labs(title = "Número de productos por estrato", x= "Productos", y= "Cantidad de productos (en miles)", fill= "Producto")+
+  scale_y_continuous(labels = scales::comma)+
+  theme_minimal()+
+    theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))+
+  scale_fill_discrete(labels = c('Cuenta Ahorro', 'Tarjeta Credito', 'Cuenta Nomina', 'Crediservice', 'CDT', 'Ordinario', 'Otros', 'Libranza', 'Libredestino',  'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda', 'Microcredito', 'Fomento', 'Activo Pyme'))+
+   geom_text(aes(label = round(melt_by_estrato$value/1000, digits = 1), hjust =0, vjust = -0.3, angle = 90))
+  #coord_flip()+
+
+```
+
+```{r echo=FALSE, fig.width=16.5, , fig.height=15}
+#Estrato por producto
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "crm_estrato")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+setnames(dt_tenencia, old = c("cant_tarj_credito", "cant_ctas_nomina", "cant_ctas_ahorro", "cant_crediservice", "cant_cdt", "cant_ordinario", "cant_libranza", "cant_libre_destino", "cant_otros", "cant_vehiculo", "cant_ctas_corriente", "cant_leasing", "cant_vivienda",  "cant_fomento", "cant_microcredito", "cant_activo_pyme") , new = c('Tarjeta Credito', 'Cuenta Nomina', 'Cuenta Ahorro', 'Crediservice', 'CDT', 'Ordinario', 'Libranza', 'Libredestino', 'Otros', 'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda','Fomento', 'Microcredito', 'Activo Pyme'))
+
+sum_by_estrato <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = crm_estrato]
+melt_by_estrato <- melt(sum_by_estrato, id = "crm_estrato")
+melt_by_estrato <- melt_by_estrato[variable != "Constructor"]
+
+ggplot(melt_by_estrato, aes( x = factor(crm_estrato), y = value) ) + geom_col(aes(fill = forcats::fct_rev(crm_estrato))) + 
+  facet_wrap(~factor(variable), scales = "free") + theme(axis.text.x = element_blank(), axis.ticks = element_blank())+
+  labs(title ="Total de productos por estrato", fill = "Estrato", x= "Estrato", y = "Cantidad de producto")+
+  scale_y_continuous(labels = scales::comma)+
+  geom_text(aes(label = comma(melt_by_estrato$value), vjust = -0.2))+
+  theme_minimal()+
+    theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+
+#Número de productos por género
+```{r echo=FALSE, fig.height=10, fig.width=18}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "crm_genero")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+sum_by_genero <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = crm_genero]
+melt_by_genero <- melt(sum_by_genero, id = "crm_genero")
+
+ggplot(melt_by_genero, aes( x = variable, y = value/1000) ) + geom_col(aes(fill = factor(variable))) + 
+  facet_wrap(~factor(crm_genero), scales = "free") + theme(axis.text.x = element_blank(), axis.ticks = element_blank())+
+  scale_fill_discrete(labels = c('Cuenta Ahorro', 'Tarjeta Credito', 'Cuenta Nomina', 'Crediservice', 'CDT', 'Ordinario', 'Otros', 'Libranza', 'Libredestino',  'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda', 'Microcredito', 'Fomento', 'Activo Pyme'))+
+  labs(title = "Número de productos por género", x= "Productos", y= "Cantidad de producto (en miles)", fill= "Producto")+
+  scale_y_continuous(labels = scales::comma)+
+  theme_minimal()+
+      theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))+
+  geom_text(aes(label = round(melt_by_genero$value/1000, digits = 1), vjust = 0.1, hjust=0.1, angle=90))
+
+```
+
+```{r echo=FALSE, fig.width=15, , fig.height=15}
+#Segmento por sexo
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "crm_genero")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+setnames(dt_tenencia, old = c("cant_tarj_credito", "cant_ctas_nomina", "cant_ctas_ahorro", "cant_crediservice", "cant_cdt", "cant_ordinario", "cant_libranza", "cant_libre_destino", "cant_otros", "cant_vehiculo", "cant_ctas_corriente", "cant_leasing", "cant_vivienda",  "cant_fomento", "cant_microcredito", "cant_activo_pyme") , new = c('Tarjeta Credito', 'Cuenta Nomina', 'Cuenta Ahorro', 'Crediservice', 'CDT', 'Ordinario', 'Libranza', 'Libredestino', 'Otros', 'Vehiculo', 'Cuenta Corriente', 'Leasing', 'Vivienda','Fomento', 'Microcredito', 'Activo Pyme'))
+
+sum_by_genero <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = crm_genero]
+melt_by_genero <- melt(sum_by_genero, id = "crm_genero")
+
+ggplot(melt_by_genero, aes( x = factor(crm_genero), y = value) ) + geom_col(aes(fill = factor(crm_genero))) + 
+  facet_wrap(~factor(variable), scales = "free") + theme(axis.text.x = element_blank(), axis.ticks = element_blank())+
+   scale_y_continuous(labels = scales::comma)+
+  geom_text(aes(label = comma(melt_by_genero$value), vjust = -0.2))+
+  labs(title ="Número de productos por género", fill = "Género", x= "Género", y = "Cantidad de productos")+
+  theme_minimal()+
+      theme(axis.text.x = element_blank(), axis.ticks = element_blank())+ 
+ theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+
+
+#Distribución de clientes por tenencia de productos
+
+##Cuenta de ahorro
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_ctas_ahorro)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+labs(title = "Distribución de clientes por tenencia de cuenta de ahorro", caption = "Nota: Con límite de 1 a 5", x = "Número de cuentas de ahorro", y = "Número de clientes")+
+  theme_minimal()+
+    theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Tarjeta de crédito
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_tarj_credito)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 6.5)+
+labs(title = "Distribución de clientes por tenencia de tarjeta de crédito", caption = "Nota: Con límite de 1 a 6",x = "Número de tarjetas de crédito", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+```
+
+##Cuenta de nómina
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_ctas_nomina)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+labs(title = "Distribución de clientes por tenencia de cuenta de nómina", caption = "Nota: Con límite de 1 a 5", x = "Número de cuentas de nómina", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Crediservice
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_crediservice)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 3.5)+
+labs(title = "Distribución de clientes por tenencia de Crediservice", caption= "Nota: Con límite de 1 a 3",x = "Número de Crediservice", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+```
+
+##CDT
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_cdt)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 8.5)+
+labs(title = "Distribución de clientes por tenencia de CDT", caption = "Nota: Con límite de 1 a 8",x = "Número de CDT", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Crédito ordinario
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_ordinario)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+labs(title = "Distribución de clientes por tenencia de crédito ordinario", caption = "Nota: Con límite de 1 a 5",x = "Número de crdito ordinario", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+```
+
+
+##Otros
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_otros)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+  labs(title = "Distribución de clientes por tenencia de otros productos", caption = "Nota: Con límite de 1 a 5", x = "Número de otros productos", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+```
+
+##Libranza
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+
+ggplot(dt_tenencia, aes(cant_libranza)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 3.5)+
+  labs(title = "Distribución de clientes por tenencia de crédito de Libranza", caption = "Nota: Con límite de 1 a 3", x = "Número de créditos de Libranza", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+  
+```
+
+##Libre Destino
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_libre_destino)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+   labs(title = "Distribución de clientes por tenencia de crédito Libre Destino", caption = "Nota: Con límite de 1 a 5", x = "Número de créditos Libre Destino", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))     
+          
+```
+
+
+
+##Vehículo
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_vehiculo)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+  labs(title = "Distribución de clientes por tenencia de crédito de vehículo", caption = "Nota: Con límite de 1 a 5", x = "Número de créditos de vehículo", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Cuenta Corriente
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_ctas_corriente)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 3.5)+
+  labs(title = "Distribución de clientes por tenencia de cuenta corriente", caption = "Nota: Con límite de 1 a 3", x = "Número de cuenta corriente", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Leasing
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_leasing)) + geom_histogram(bins = 31,binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+  labs(title = "Distribución de clientes por tenencia de créditos de Leasing", caption = "Nota: Con límite de 1 a 5", x = "Número de créditos de Leasing", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Vivienda
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_vivienda)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 5.5)+
+  labs(title = "Distribución de clientes por tenencia de crédito de vivienda", caption = "Nota: Con límite de 1 a 5", x = "Número de créditos de vivienda", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Microcrédito
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_microcredito)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 3.5)+
+  labs(title = "Distribución de clientes por tenencia de microcrédito", caption = "Nota: Con límite de 1 a 3", x = "Número de microcréditos", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+##Fomento
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_fomento)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 6.5)+
+  labs(title = "Distribución de clientes por tenencia de crédito de fomento", caption = "Nota: Con límite de 1 a 6", x = "Número de créditos de fomento", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+```
+
+
+##Activo Pyme
+```{r echo=FALSE, fig.height= 8, fig.width= 10}
+grep <- grep("cant_", names(dt), value = T)
+grep <- c(grep, "segmento_comercial")
+
+dt_tenencia <- dt[, ..grep]
+
+num_vars <- grep("cant_", names(dt_tenencia), value = T)
+dt_tenencia[, (num_vars) := lapply(.SD, as.numeric), .SDcols = num_vars]
+
+sum_by_segmento <- dt_tenencia[, lapply(.SD, sum, na.rm = T), by = segmento_comercial]
+melt_by_segmento <- melt(sum_by_segmento, id = "segmento_comercial")
+
+segmento_ordenado <- factor(dt_tenencia$segmento_comercial, levels=c('Micro','Masivo','Preferente','Preferente Plus', 'Premium'), ordered = T)
+
+ggplot(dt_tenencia, aes(cant_activo_pyme)) + geom_histogram(bins = 31, binwidth=1, fill = I("royalblue"), col = I("darkblue"))+
+  facet_wrap(~factor(segmento_ordenado), scales = "free")+
+  stat_bin(binwidth=1, geom="text", size = 3 ,aes(label=scales::comma(..count..), vjust=-0.2, hjust = 0.5))+
+  scale_y_continuous(labels = scales::comma)+
+  xlim(0.5, 3.5)+
+  labs(title = "Distribución de clientes por tenencia de Activo Pyme", caption = "Nota: Con límite de 1 a 3", x = "Número de productos Activo Pyme", y = "Número de clientes")+
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+rm(dt_tenencia)
+# gc()
+
+```
+
+
+
+#Apéndice
+
+## Promedio de ingresos
+
+###Segmento comercial
+```{r echo=FALSE}
+dt[, crm_valor_ing_bru_mes := as.numeric(crm_valor_ing_bru_mes)]
+dt[, ingresos_millones := crm_valor_ing_bru_mes/1000000]
+seg_order <- factor(dt$segmento_comercial, levels = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"))
+table_ingprom <- as.data.frame(aggregate(ingresos_millones~seg_order, dt, function(i) comma(round(mean(i)))))
+colnames(table_ingprom) <- c( "Segmento comercial", "Promedio ingresos (millones COP)" )  
+table_ingprom
+```
+
+**Nota:** Esta tabla tiene en cuenta el valor m?ximo de los ingresos, que es un dato atípico 
+igual a: `r comma(max(dt$crm_valor_ing_bru_mes, na.rm = T))`COP
+
+Eliminando este valor atípico, el promedio de ingresos (en millones COP) por segmento comercial es:
+
+```{r echo=FALSE}
+dt[, ingresos_millones := crm_valor_ing_bru_mes/1000000]
+
+dt$ingresos_millones[dt$ingresos_millones ==  400000090] <- NA
+
+seg_order <- factor(dt$segmento_comercial, levels = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"))
+table_ingprom <- as.data.frame(aggregate(ingresos_millones~seg_order, dt, function(i) comma(round(mean(i)))))
+colnames(table_ingprom) <- c( "Segmento comercial", "Promedio ingresos (millones COP)" )  
+table_ingprom
+```
+
+**Observación:** Al eliminar el dato atípico se puede corroborar que este tiene mucho peso en la estimación de la media de ingresos del segmento Preferente, puesto que su valor se reduce en gran medida.
+
+
+###Segmento táctico
+```{r echo=FALSE}
+dt[, crm_valor_ing_bru_mes := as.numeric(crm_valor_ing_bru_mes)]
+dt[, ingresos_millones := crm_valor_ing_bru_mes/1000000]
+seg_order <- factor(dt$segmento_tactico, levels = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"))
+table_ingprom <- as.data.frame(aggregate(ingresos_millones~seg_order, dt, function(i) round(mean(i))))
+colnames(table_ingprom) <- c( "Segmento táctico", "Promedio ingresos (millones COP)" )  
+table_ingprom
+```
+
+**Nota:** Esta tabla tiene en cuenta el valor máximo de los ingresos.
+
+Eliminando este valor atípico, el promedio de ingresos (en millones COP) por segmento táctico es:
+
+```{r echo=FALSE}
+dt[, ingresos_millones := crm_valor_ing_bru_mes/1000000]
+
+dt$ingresos_millones[dt$ingresos_millones == 400000090] <- NA
+
+seg_order <- factor(dt$segmento_tactico, levels = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"))
+table_ingprom <- as.data.frame(aggregate(ingresos_millones~seg_order, dt, function(i) round(mean(i))))
+colnames(table_ingprom) <- c( "Segmento táctico", "Promedio ingresos (millones COP)" )  
+table_ingprom
+```
+
+**Observación:** Al eliminar el dato atípico se puede corroborar que este tiene mucho peso en la estimación de la media de ingresos de adulto, puesto que su valor se reduce en gran medida.
+
+
+```{r include=FALSE}
+#Leer datos de creditos
+data_path <- os.path.join(staging_path, "creditos")
+files <- list.files(path= data_path, pattern = ".rds")
+
+position <-
+    paste0(sapply(str_extract_all(files, "[0-9]+"), "[[", 1)) %>% as.numeric
+
+df_position <-
+    data.frame(files = files, position = position)
+
+files <- df_position[df_position$position == yearmonth, ]
+files <- as.character(files[[1]])
+
+creditos <-
+    readRDS(
+      paste0(data_path, "/", files)
+    )  
+
+
+```
+
+
+
+##Crediestudiantil
+
+###Segmento comercial
+```{r echo=FALSE}
+dt_cred <- creditos[Crediestudiantil != "Otros"]     ###Crear un datatable donde no se incluya otros
+
+base <- dt_cred[, .(count = .N), by = .(Crediestudiantil, segmento_comercial)]
+
+base[, total := sum(count), by = segmento_comercial]
+base <- base[!is.na(Crediestudiantil)]
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = seg_order, y = total)) +
+  geom_bar(aes(col = I("darkblue"), fill = I("royalblue")), stat = "identity")  +
+    geom_text(aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Cantidad de Crediestudiantil \n por segmento comercial",x="Segmento comercial", y="Cantidad", fill="Producto") +
+   theme_minimal() +
+    # scale_x_discrete(limits= seg_order)+
+  scale_y_continuous(labels = scales::comma)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+  theme(axis.text.y = element_text(size = 6.5)) 
+
+
+```
+
+
+###Segmento táctico
+```{r echo=FALSE}
+dt_cred <- creditos[Crediestudiantil != "Otros"]     ###Crear un datatable donde no se incluya otros
+
+base <- dt_cred[, .(count = .N), by = .(Crediestudiantil, segmento_tactico)]
+
+base[, total := sum(count), by = segmento_tactico]
+base <- base[!is.na(Crediestudiantil)]
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = total)) +
+  geom_bar(aes(col = I("darkblue"), fill = I("royalblue")), stat = "identity")  +
+    geom_text(aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title = "Cantidad de Crediestudiantil \n por segmento táctico", x="Segmento táctico", y="Cantidad", fill="Producto") +
+   theme_minimal() +
+    # scale_x_discrete(limits= seg_order)+
+  scale_y_continuous(labels = scales::comma)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+  theme(axis.text.y = element_text(size = 6.5)) 
+
+
+```
+
+
+##Preferente Plus
+
+###Número de clientes Preferente Plus por ocupación
+```{r echo=FALSE, fig.height=8, fig.width=9, message=FALSE, warning=FALSE}
+
+plot_plus_ocup <- ggplot(dt, aes(x=crm_nombre_ocupacion, fill=subsegmento)) +
+  geom_bar()+theme(axis.text.x = element_text(angle = 90, vjust = 0.2)) +  
+  scale_y_continuous(labels = scales::comma)+
+  labs(x = "Ocupación", y= "Número de clientes", caption = "Nota: Incluidos datos no reportados (NA) en gris")+
+  theme(axis.text.x = element_text(size = 8), plot.caption=element_text(hjust = 0.6), legend.position = "none")
+  # scale_fill_manual(values=c("royalblue", "gray"))
+
+plot_plus_ocup1 <- ggplot(data=subset(dt, !is.na(subsegmento)), aes(x=crm_nombre_ocupacion, fill= subsegmento)) +
+  geom_bar()+theme(axis.text.x = element_text(angle = 90, vjust = 0.2)) +  
+  scale_y_continuous(labels = scales::comma)+
+  labs(x= "Ocupación", y= "Numero de clientes", caption = "Nota: Sin incluir datos no reportados")+
+  theme(axis.text.x = element_text(size = 8), plot.caption = element_text(hjust = 0.6))
+
+multiplot(plot_plus_ocup, plot_plus_ocup1, cols = 2)
+```
+
+
+###Número de clientes que pertenecen a subsegmento preferente plus por segmentos
+
+####Segmento comercial
+```{r echo=FALSE}
+base <- dt[, .(count = .N), by = .(subsegmento, segmento_comercial)]
+base <- base[!is.na(subsegmento)]
+base <- base[subsegmento != "Otro"] 
+
+base[, total := sum(count), by = segmento_comercial]
+    ### donde no se incluya otros
+
+
+seg_order <- factor(base$segmento_comercial, level = c("Micro", "Masivo", "Preferente", "Preferente Plus", "Premium"), ordered = T)
+
+base %>% ggplot(aes( x = segmento_comercial, y = total)) +
+  geom_bar(aes(col = I("darkblue"), fill = I("royalblue")), stat = "identity")  +
+    geom_text(aes(x = segmento_comercial , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title= "Número de clientes Preferente Plus \n por segmento comercial", x="Segmento comercial", y="Numero de clientes", fill="Subsegmento")+
+   theme_minimal() +
+    # scale_x_discrete(limits= seg_order)+
+  scale_y_continuous(labels = scales::comma)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+  theme(axis.text.y = element_text(size = 6.5))
+
+
+```
+**Nota:** Las marcaciones diferentes a las correspondientes a Preferente Plus son errores. El subsegmento Preferente Plus proviene únicamente del segmento preferente en CRM.
+
+
+####Segmento táctico
+```{r echo=FALSE}
+base <- dt[, .(count = .N), by = .(subsegmento, segmento_tactico)]
+base <- base[!is.na(subsegmento)]
+base <- base[subsegmento != "Otro"] 
+
+base[, total := sum(count), by = segmento_tactico]
+    ### donde no se incluya otros
+
+tac_order <- factor(base$segmento_tactico, level = c("Infantil", "Adolescente", "Joven", "Adulto", "Experiencia"), ordered = T)
+
+base %>% ggplot(aes( x = tac_order, y = total)) +
+  geom_bar(aes(col = I("darkblue"), fill = I("royalblue")), stat = "identity")  +
+    geom_text(aes(x = segmento_tactico , y = 1 , label = comma(total)), size = 3, vjust = -0.5) +
+  labs(title= "Número de clientes Preferente Plus \n por segmento táctico", x="Segmento táctico", y="Numero de clientes", fill="Subsegmento")+
+   theme_minimal() +
+    # scale_x_discrete(limits= seg_order)+
+  scale_y_continuous(labels = scales::comma)+
+  theme(
+  plot.title = element_text(face = "bold", hjust = 0.5),
+  axis.text.x = element_text(
+  hjust = 0.5,
+  vjust = 0,
+  size = 8
+  )
+  ) +
+  theme(axis.text.y = element_text(size = 6.5))
+```
